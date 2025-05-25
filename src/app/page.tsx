@@ -1,103 +1,248 @@
-import Image from "next/image";
+// src/app/page.tsx
+"use client";
 
-export default function Home() {
+import { useState, useEffect, useCallback } from 'react';
+import ArticleCard from '@/components/ArticleCard';
+import CategorySelector from '@/components/CategorySelector';
+import { Article } from '@/types'; // Assuming your types/index.ts has this
+
+const NEWS_CATEGORIES = ["general", "business", "technology", "entertainment", "health", "science", "sports"];
+const DEFAULT_CATEGORY = NEWS_CATEGORIES[0];
+
+export default function HomePage() {
+  const [articles, setArticles] = useState<Article[]>([]);
+  const [isLoadingArticles, setIsLoadingArticles] = useState(true);
+  const [selectedCategory, setSelectedCategory] = useState<string>(DEFAULT_CATEGORY);
+
+  const [currentSummary, setCurrentSummary] = useState<{ title: string; summaryText: string; keywords: string[] } | null>(null);
+  const [isSummarizing, setIsSummarizing] = useState(false); // General summarizing state
+  const [summarizingArticleUrl, setSummarizingArticleUrl] = useState<string | null>(null); // Specific article URL being summarized
+
+  const [globalError, setGlobalError] = useState<string | null>(null);
+  const [searchKeywords, setSearchKeywords] = useState<string[]>([]); // For personalization from localStorage
+
+  // Fetch Articles Function
+  const fetchArticles = useCallback(async (category: string, keywordsToSearch: string[] = []) => {
+    setIsLoadingArticles(true);
+    setGlobalError(null);
+    let url = `/api/news?category=${category}`;
+    if (keywordsToSearch.length > 0) {
+      url = `/api/news?q=${encodeURIComponent(keywordsToSearch.join(' OR '))}`;
+    }
+
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || `Failed to fetch articles (Status: ${response.status})`);
+      }
+      const data: Article[] = await response.json();
+      setArticles(data);
+    } catch (err: any) {
+      setGlobalError(err.message || "An unknown error occurred while fetching articles.");
+      console.error("Fetch articles error:", err);
+      setArticles([]);
+    } finally {
+      setIsLoadingArticles(false);
+    }
+  }, []);
+
+  // Initial fetch and when category/searchKeywords change
+  useEffect(() => {
+    fetchArticles(selectedCategory, searchKeywords);
+  }, [selectedCategory, searchKeywords, fetchArticles]);
+
+  const handleSelectCategory = (category: string) => {
+    setSelectedCategory(category);
+    setSearchKeywords([]);
+    setCurrentSummary(null);
+  };
+
+  // THIS FUNCTION HAS BEEN UPDATED WITH MORE LOGGING
+  const handleSummarizeArticle = async (article: Article) => {
+    const contentToSummarize = article.content || article.description;
+    if (!contentToSummarize) {
+      setGlobalError("This article doesn't have enough content to summarize.");
+      console.warn("[FE] Attempted to summarize article with no content:", article.title);
+      return;
+    }
+    
+    setIsSummarizing(true);
+    setSummarizingArticleUrl(article.url);
+    setCurrentSummary(null); // Clear previous summary before fetching new one
+    setGlobalError(null);
+    console.log(`[FE] Attempting to summarize: ${article.title}`);
+
+    try {
+      const response = await fetch('/api/summarize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ articleTitle: article.title, articleContent: contentToSummarize }),
+      });
+
+      console.log("[FE] Raw response object from /api/summarize fetch:", response);
+
+      if (!response.ok) {
+        let errorData = { error: `Server error: ${response.status}`, details: 'Could not retrieve error details.' };
+        try {
+          const errorJson = await response.json(); 
+          console.error("[FE] Error response JSON from /api/summarize:", errorJson);
+          errorData = { 
+            error: errorJson.error || `Server error: ${response.status}`, 
+            details: errorJson.details || JSON.stringify(errorJson) 
+          };
+        } catch (e) {
+          const textError = await response.text(); 
+          console.error("[FE] Error response text from /api/summarize:", textError);
+          errorData.details = textError;
+        }
+        throw new Error(errorData.error + (errorData.details ? ` - ${errorData.details}` : ''));
+      }
+
+      const data: { summary: string; keywords: string[] } = await response.json();
+      console.log("[FE] Successfully parsed data from /api/summarize:", data);
+
+      if (data && typeof data.summary === 'string' && Array.isArray(data.keywords)) {
+        const newSummary = { title: article.title, summaryText: data.summary, keywords: data.keywords };
+        setCurrentSummary(newSummary); 
+        console.log("[FE] currentSummary state HAS BEEN SET with:", newSummary); 
+        
+        if (data.keywords.length > 0) {
+          localStorage.setItem('lastKeywords', JSON.stringify(data.keywords));
+          console.log("[FE] Keywords stored in localStorage:", data.keywords);
+        }
+      } else {
+        console.error("[FE] Received data from /api/summarize is not in the expected format or incomplete:", data);
+        setGlobalError("The AI returned an unexpected summary format. Please try again.");
+        setCurrentSummary(null); 
+      }
+
+    } catch (err: any) {
+      console.error("[FE] Error in handleSummarizeArticle catch block:", err.message, err);
+      setGlobalError(err.message || "An unknown error occurred while summarizing.");
+      setCurrentSummary(null); 
+    } finally {
+      setIsSummarizing(false);
+      setSummarizingArticleUrl(null);
+      console.log("[FE] Summarization process finished for:", article.title);
+    }
+  };
+
+  const handleSeeMoreLikeThis = () => {
+    const storedKeywords = localStorage.getItem('lastKeywords');
+    if (storedKeywords) {
+      const keywords: string[] = JSON.parse(storedKeywords);
+      if (keywords.length > 0) {
+        setSearchKeywords(keywords);
+        setSelectedCategory('');
+        setCurrentSummary(null);
+      }
+    } else {
+      setGlobalError("No keywords found from a previous summary to search for related articles.");
+    }
+  };
+
   return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm/6 text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-[family-name:var(--font-geist-mono)] font-semibold">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+    <div className="container mx-auto p-4 md:p-6 min-h-screen bg-gray-900 text-white font-sans">
+      <header className="text-center my-6 md:my-8">
+        <h1 className="text-3xl sm:text-4xl md:text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-sky-400 to-blue-500">
+          AI News Brief
+        </h1>
+        <p className="text-gray-400 mt-2 text-sm md:text-base">Your intelligent news summarizer.</p>
+      </header>
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+      <CategorySelector
+        categories={NEWS_CATEGORIES}
+        selectedCategory={selectedCategory}
+        onSelectCategory={handleSelectCategory}
+        disabled={isLoadingArticles || isSummarizing}
+      />
+
+      {searchKeywords.length > 0 && !isLoadingArticles && (
+        <div className="text-center mb-4 p-2 bg-gray-800 rounded-md">
+            <p className="text-sky-300 text-sm">Showing articles related to: <span className="font-semibold">"{searchKeywords.join('", "')}"</span></p>
+            <button 
+                onClick={() => { setSearchKeywords([]); setSelectedCategory(DEFAULT_CATEGORY); }}
+                className="text-xs text-gray-400 hover:text-sky-400 mt-1 underline"
+            >
+                (Clear Search & Show General News)
+            </button>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+      )}
+
+      {globalError && (
+        <div role="alert" className="bg-red-800 border border-red-600 text-red-100 px-4 py-3 rounded-md relative my-4 text-sm shadow-lg">
+          <strong className="font-bold">Oops! </strong>
+          <span className="block sm:inline">{globalError}</span>
+        </div>
+      )}
+
+      {isLoadingArticles ? (
+        <div className="text-center py-20">
+          <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-sky-400 mx-auto"></div>
+          <p className="mt-4 text-lg text-sky-300">Fetching fresh news...</p>
+        </div>
+      ) : articles.length > 0 ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-6">
+          {articles.map((article) => (
+            <ArticleCard
+              key={article.url}
+              article={article}
+              onSummarize={handleSummarizeArticle}
+              isSummarizingThis={summarizingArticleUrl === article.url}
+              hasContentForSummary={!!(article.content || article.description)}
+            />
+          ))}
+        </div>
+      ) : (
+         <p className="text-center text-gray-500 py-20 text-lg">No articles found for this selection. Try another category or check back later!</p>
+      )}
+
+      {/* Summary Modal */}
+      {currentSummary && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50 backdrop-blur-md animate-fadeIn">
+          <div className="bg-gray-800 p-6 rounded-xl shadow-2xl max-w-xl w-full border border-gray-700 max-h-[90vh] flex flex-col">
+            <div className="mb-4">
+              <h3 className="text-xl sm:text-2xl font-semibold text-sky-300 line-clamp-2 break-words" title={currentSummary.title}>
+                AI Summary: <span className="font-bold">{currentSummary.title}</span>
+              </h3>
+            </div>
+
+            <div className="text-gray-300 mb-4 whitespace-pre-line text-sm leading-relaxed overflow-y-auto pr-2 custom-scrollbar flex-grow">
+                {currentSummary.summaryText}
+            </div>
+
+            {currentSummary.keywords && currentSummary.keywords.length > 0 && (
+              <div className="mb-5 pt-3 border-t border-gray-700">
+                <p className="text-xs text-sky-400 mb-1.5 font-medium">Keywords:</p>
+                <div className="flex flex-wrap gap-2">
+                  {currentSummary.keywords.map((kw, i) => (
+                    <span key={i} className="bg-gray-700 hover:bg-gray-600 text-sky-300 px-3 py-1 rounded-full text-xs shadow-sm cursor-default">
+                      {kw}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="flex flex-col sm:flex-row justify-end gap-3 mt-auto pt-4 border-t border-gray-700">
+                <button
+                    onClick={handleSeeMoreLikeThis}
+                    className="bg-sky-600 hover:bg-sky-500 text-white text-sm font-semibold py-2 px-4 rounded-lg transition shadow-md hover:shadow-lg disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-opacity-75"
+                    disabled={!(currentSummary.keywords && currentSummary.keywords.length > 0) || isLoadingArticles || isSummarizing}
+                >
+                    More like this
+                </button>
+                <button
+                    onClick={() => setCurrentSummary(null)}
+                    className="bg-gray-600 hover:bg-gray-500 text-white text-sm font-semibold py-2 px-4 rounded-lg transition shadow-md hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-75"
+                >
+                    Close
+                </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* End of Summary Modal */}
     </div>
   );
 }
