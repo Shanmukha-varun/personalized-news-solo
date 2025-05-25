@@ -1,9 +1,8 @@
 // src/app/api/news/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { Article as FrontendArticle } from '@/types'; // Assuming you have this type for frontend
+import { Article as FrontendArticle } from '@/types'; // Assuming your types/index.ts is correct
 
-// Define a more specific type for the articles from NewsAPI if possible
-// For now, we'll use a basic structure.
+// Define a more specific type for the articles from NewsAPI.
 interface NewsApiArticle {
   source?: { id: string | null; name: string };
   author?: string | null;
@@ -22,7 +21,6 @@ interface NewsApiResponse {
   code?: string; // For error responses
   message?: string; // For error responses
 }
-
 
 const NEWS_API_KEY = process.env.NEWS_API_KEY;
 const DEFAULT_COUNTRY = 'us';
@@ -58,42 +56,43 @@ export async function GET(request: NextRequest) {
     // console.log(`NewsAPI Raw Response Body Snippet: ${responseBodyText.substring(0, 500)}`);
 
     if (!response.ok) {
-      let errorDetails: NewsApiResponse | string = responseBodyText; // Default to raw text
+      let errorDetails: NewsApiResponse | string;
       try {
         errorDetails = JSON.parse(responseBodyText) as NewsApiResponse;
-      } catch (_e) { // Error 'e' at 44:16 - fixed by prefixing with _
-        // Keep errorDetails as responseBodyText if JSON.parse fails
+      } catch { // Omitted unused error variable for ESLint
+        errorDetails = responseBodyText;
       }
       console.error('NewsAPI Error - Full Details:', errorDetails);
       return NextResponse.json({ error: 'Failed to fetch news from NewsAPI. Check server logs.', api_status: response.status, api_details: errorDetails }, { status: response.status });
     }
 
-    let data: NewsApiResponse; // Error at 62:17 - fixed by using NewsApiResponse type
+    let data: NewsApiResponse;
     try {
       data = JSON.parse(responseBodyText) as NewsApiResponse;
-    } catch (parseError: unknown) { // Use unknown for catch variable
-      console.error('Failed to parse NewsAPI JSON response:', parseError instanceof Error ? parseError.message : parseError);
+    } catch (parseError: unknown) {
+      const errorMessage = parseError instanceof Error ? parseError.message : 'Unknown parsing error';
+      console.error('Failed to parse NewsAPI JSON response:', errorMessage);
       console.error('Original non-JSON response body:', responseBodyText);
       return NextResponse.json({ error: 'Received malformed data from NewsAPI.' }, { status: 500 });
     }
     
-    const filteredArticles = (data.articles || []).filter(
-      (article: NewsApiArticle): article is FrontendArticle => // Error at 67:19 - fixed by using NewsApiArticle and type predicate
+    const filteredAndMappedArticles = (data.articles || [])
+      .filter((article: NewsApiArticle): article is NewsApiArticle & { title: string; url: string } => // Ensure title and url are present
         !!(article.url && article.title && (article.description || article.content))
-    ).map(article => ({ // Map to FrontendArticle type if necessary, ensure all fields match
-        title: article.title || 'No Title',
-        description: article.description,
-        content: article.content,
-        url: article.url || '',
+      )
+      .map((article: NewsApiArticle & { title: string; url: string }): FrontendArticle => ({ // Map to FrontendArticle type
+        title: article.title, // Now known to be a string
+        description: article.description || null,
+        content: article.content || null,
+        url: article.url, // Now known to be a string
         source: article.source,
         publishedAt: article.publishedAt,
         urlToImage: article.urlToImage,
-    }));
+      }));
 
+    return NextResponse.json(filteredAndMappedArticles);
 
-    return NextResponse.json(filteredArticles);
-
-  } catch (error: unknown) { // Use unknown for catch variable
+  } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
     const errorStack = error instanceof Error ? error.stack : undefined;
     console.error('Network or other unexpected error fetching news:', errorMessage, errorStack);

@@ -32,12 +32,13 @@ export default function HomePage() {
     try {
       const response = await fetch(url);
       if (!response.ok) {
-        const errorData = await response.json();
+        // Assuming errorData from backend is { error: string, details?: any }
+        const errorData: { error: string; details?: unknown } = await response.json();
         throw new Error(errorData.error || `Failed to fetch articles (Status: ${response.status})`);
       }
       const data: Article[] = await response.json();
       setArticles(data);
-    } catch (err: unknown) { // Error at 41:19 - fixed with unknown
+    } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : "An unknown error occurred while fetching articles.";
       setGlobalError(errorMessage);
       console.error("Fetch articles error:", err);
@@ -61,7 +62,7 @@ export default function HomePage() {
     const contentToSummarize = article.content || article.description;
     if (!contentToSummarize) {
       setGlobalError("This article doesn't have enough content to summarize.");
-      console.warn("[FE] Attempted to summarize article with no content:", article.title);
+      // console.warn("[FE] Attempted to summarize article with no content:", article.title);
       return;
     }
     
@@ -83,16 +84,17 @@ export default function HomePage() {
       if (!response.ok) {
         let errorData = { error: `Server error: ${response.status}`, details: 'Could not retrieve error details.' };
         try {
-          const errorJson = await response.json(); 
+          const errorJson: { error?: string; details?: unknown } = await response.json(); 
           // console.error("[FE] Error response JSON from /api/summarize:", errorJson);
           errorData = { 
             error: errorJson.error || `Server error: ${response.status}`, 
-            details: errorJson.details || JSON.stringify(errorJson) 
+            details: typeof errorJson.details === 'string' ? errorJson.details : JSON.stringify(errorJson.details) 
           };
-        } catch (_e) { // Error at 94:18 - fixed by prefixing with _
+        } catch { // Omitted unused error variable for ESLint
+          // If response is not JSON, try to get text
           const textError = await response.text(); 
           // console.error("[FE] Error response text from /api/summarize:", textError);
-          errorData.details = textError;
+          errorData.details = textError; // errorData.error would remain "Server error: <status>"
         }
         throw new Error(errorData.error + (errorData.details ? ` - ${errorData.details}` : ''));
       }
@@ -115,7 +117,7 @@ export default function HomePage() {
         setCurrentSummary(null); 
       }
 
-    } catch (err: unknown) { // Error at 120:19 - fixed with unknown
+    } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : "An unknown error occurred while summarizing.";
       // console.error("[FE] Error in handleSummarizeArticle catch block:", errorMessage, err);
       setGlobalError(errorMessage);
@@ -159,13 +161,12 @@ export default function HomePage() {
 
       {searchKeywords.length > 0 && !isLoadingArticles && (
         <div className="text-center mb-4 p-2 bg-gray-800 rounded-md">
-            {/* Errors at 163:110 and 163:140 - fixed by using template literal for the whole expression */}
             <p className="text-sky-300 text-sm">Showing articles related to: <span className="font-semibold">{`"${searchKeywords.join('", "')}"`}</span></p>
             <button 
                 onClick={() => { setSearchKeywords([]); setSelectedCategory(DEFAULT_CATEGORY); }}
                 className="text-xs text-gray-400 hover:text-sky-400 mt-1 underline"
             >
-                (Clear Search & Show General News)
+                {`(Clear Search & Show General News)`}
             </button>
         </div>
       )}

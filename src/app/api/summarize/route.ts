@@ -1,6 +1,6 @@
 // src/app/api/summarize/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/generative-ai'; // Import APIError if available or use a general check
+import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/generative-ai';
 
 let genAI: GoogleGenerativeAI | null = null;
 if (process.env.GEMINI_API_KEY) {
@@ -36,10 +36,10 @@ export async function POST(request: NextRequest) {
     // console.log(`Summarizing with Gemini: "${articleTitle}", content length: ${truncatedContent.length}`);
 
     const model = genAI.getGenerativeModel({
-      model: "gemini-1.5-flash-latest", // Using the known working model
+      model: "gemini-1.5-flash-latest",
       safetySettings,
       generationConfig: {
-        responseMimeType: "application/json", // Keep this if gemini-1.5-flash supports it well
+        responseMimeType: "application/json",
         temperature: 0.5,
         maxOutputTokens: 250,
       }
@@ -72,9 +72,9 @@ export async function POST(request: NextRequest) {
 
     let parsedResponse: { summary: string; keywords: string[] };
     try {
-      const cleanedResponseText = responseText.replace(/^```json\s*|```\s*$/g, '');
-      parsedResponse = JSON.parse(cleanedResponseText);
-    } catch (parseError: unknown) { // Error at 81:26 - fixed with unknown
+      // No need to clean for ```json anymore if responseMimeType: "application/json" is working
+      parsedResponse = JSON.parse(responseText);
+    } catch (parseError: unknown) {
       const errorMessage = parseError instanceof Error ? parseError.message : 'Unknown parsing error';
       console.error("Gemini response was not valid JSON:", responseText, errorMessage);
       return NextResponse.json({ error: 'AI response was not in the expected JSON format.', details: responseText }, { status: 500 });
@@ -87,11 +87,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ summary: parsedResponse.summary, keywords: parsedResponse.keywords });
 
-  } catch (error: unknown) { // Error at 93:19 - fixed with unknown
+  } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : 'An unknown Gemini API error occurred';
     console.error('Error summarizing article with Gemini:', errorMessage, error);
-    // Check if it's a Google APIError for more details if the SDK exports such a type explicitly
-    // For now, a general message is fine.
     return NextResponse.json({ error: `Gemini API Error: ${errorMessage}` }, { status: 500 });
   }
 }
