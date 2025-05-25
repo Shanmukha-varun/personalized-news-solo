@@ -4,7 +4,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import ArticleCard from '@/components/ArticleCard';
 import CategorySelector from '@/components/CategorySelector';
-import { Article } from '@/types'; // Assuming your types/index.ts has this
+import { Article } from '@/types';
 
 const NEWS_CATEGORIES = ["general", "business", "technology", "entertainment", "health", "science", "sports"];
 const DEFAULT_CATEGORY = NEWS_CATEGORIES[0];
@@ -15,13 +15,12 @@ export default function HomePage() {
   const [selectedCategory, setSelectedCategory] = useState<string>(DEFAULT_CATEGORY);
 
   const [currentSummary, setCurrentSummary] = useState<{ title: string; summaryText: string; keywords: string[] } | null>(null);
-  const [isSummarizing, setIsSummarizing] = useState(false); // General summarizing state
-  const [summarizingArticleUrl, setSummarizingArticleUrl] = useState<string | null>(null); // Specific article URL being summarized
+  const [isSummarizing, setIsSummarizing] = useState(false);
+  const [summarizingArticleUrl, setSummarizingArticleUrl] = useState<string | null>(null);
 
   const [globalError, setGlobalError] = useState<string | null>(null);
-  const [searchKeywords, setSearchKeywords] = useState<string[]>([]); // For personalization from localStorage
+  const [searchKeywords, setSearchKeywords] = useState<string[]>([]);
 
-  // Fetch Articles Function
   const fetchArticles = useCallback(async (category: string, keywordsToSearch: string[] = []) => {
     setIsLoadingArticles(true);
     setGlobalError(null);
@@ -38,8 +37,9 @@ export default function HomePage() {
       }
       const data: Article[] = await response.json();
       setArticles(data);
-    } catch (err: any) {
-      setGlobalError(err.message || "An unknown error occurred while fetching articles.");
+    } catch (err: unknown) { // Error at 41:19 - fixed with unknown
+      const errorMessage = err instanceof Error ? err.message : "An unknown error occurred while fetching articles.";
+      setGlobalError(errorMessage);
       console.error("Fetch articles error:", err);
       setArticles([]);
     } finally {
@@ -47,7 +47,6 @@ export default function HomePage() {
     }
   }, []);
 
-  // Initial fetch and when category/searchKeywords change
   useEffect(() => {
     fetchArticles(selectedCategory, searchKeywords);
   }, [selectedCategory, searchKeywords, fetchArticles]);
@@ -58,7 +57,6 @@ export default function HomePage() {
     setCurrentSummary(null);
   };
 
-  // THIS FUNCTION HAS BEEN UPDATED WITH MORE LOGGING
   const handleSummarizeArticle = async (article: Article) => {
     const contentToSummarize = article.content || article.description;
     if (!contentToSummarize) {
@@ -69,9 +67,9 @@ export default function HomePage() {
     
     setIsSummarizing(true);
     setSummarizingArticleUrl(article.url);
-    setCurrentSummary(null); // Clear previous summary before fetching new one
+    setCurrentSummary(null);
     setGlobalError(null);
-    console.log(`[FE] Attempting to summarize: ${article.title}`);
+    // console.log(`[FE] Attempting to summarize: ${article.title}`);
 
     try {
       const response = await fetch('/api/summarize', {
@@ -80,51 +78,52 @@ export default function HomePage() {
         body: JSON.stringify({ articleTitle: article.title, articleContent: contentToSummarize }),
       });
 
-      console.log("[FE] Raw response object from /api/summarize fetch:", response);
+      // console.log("[FE] Raw response object from /api/summarize fetch:", response);
 
       if (!response.ok) {
         let errorData = { error: `Server error: ${response.status}`, details: 'Could not retrieve error details.' };
         try {
           const errorJson = await response.json(); 
-          console.error("[FE] Error response JSON from /api/summarize:", errorJson);
+          // console.error("[FE] Error response JSON from /api/summarize:", errorJson);
           errorData = { 
             error: errorJson.error || `Server error: ${response.status}`, 
             details: errorJson.details || JSON.stringify(errorJson) 
           };
-        } catch (e) {
+        } catch (_e) { // Error at 94:18 - fixed by prefixing with _
           const textError = await response.text(); 
-          console.error("[FE] Error response text from /api/summarize:", textError);
+          // console.error("[FE] Error response text from /api/summarize:", textError);
           errorData.details = textError;
         }
         throw new Error(errorData.error + (errorData.details ? ` - ${errorData.details}` : ''));
       }
 
       const data: { summary: string; keywords: string[] } = await response.json();
-      console.log("[FE] Successfully parsed data from /api/summarize:", data);
+      // console.log("[FE] Successfully parsed data from /api/summarize:", data);
 
       if (data && typeof data.summary === 'string' && Array.isArray(data.keywords)) {
         const newSummary = { title: article.title, summaryText: data.summary, keywords: data.keywords };
         setCurrentSummary(newSummary); 
-        console.log("[FE] currentSummary state HAS BEEN SET with:", newSummary); 
+        // console.log("[FE] currentSummary state HAS BEEN SET with:", newSummary); 
         
         if (data.keywords.length > 0) {
           localStorage.setItem('lastKeywords', JSON.stringify(data.keywords));
-          console.log("[FE] Keywords stored in localStorage:", data.keywords);
+          // console.log("[FE] Keywords stored in localStorage:", data.keywords);
         }
       } else {
-        console.error("[FE] Received data from /api/summarize is not in the expected format or incomplete:", data);
+        // console.error("[FE] Received data from /api/summarize is not in the expected format or incomplete:", data);
         setGlobalError("The AI returned an unexpected summary format. Please try again.");
         setCurrentSummary(null); 
       }
 
-    } catch (err: any) {
-      console.error("[FE] Error in handleSummarizeArticle catch block:", err.message, err);
-      setGlobalError(err.message || "An unknown error occurred while summarizing.");
+    } catch (err: unknown) { // Error at 120:19 - fixed with unknown
+      const errorMessage = err instanceof Error ? err.message : "An unknown error occurred while summarizing.";
+      // console.error("[FE] Error in handleSummarizeArticle catch block:", errorMessage, err);
+      setGlobalError(errorMessage);
       setCurrentSummary(null); 
     } finally {
       setIsSummarizing(false);
       setSummarizingArticleUrl(null);
-      console.log("[FE] Summarization process finished for:", article.title);
+      // console.log("[FE] Summarization process finished for:", article.title);
     }
   };
 
@@ -160,7 +159,8 @@ export default function HomePage() {
 
       {searchKeywords.length > 0 && !isLoadingArticles && (
         <div className="text-center mb-4 p-2 bg-gray-800 rounded-md">
-            <p className="text-sky-300 text-sm">Showing articles related to: <span className="font-semibold">"{searchKeywords.join('", "')}"</span></p>
+            {/* Errors at 163:110 and 163:140 - fixed by using template literal for the whole expression */}
+            <p className="text-sky-300 text-sm">Showing articles related to: <span className="font-semibold">{`"${searchKeywords.join('", "')}"`}</span></p>
             <button 
                 onClick={() => { setSearchKeywords([]); setSelectedCategory(DEFAULT_CATEGORY); }}
                 className="text-xs text-gray-400 hover:text-sky-400 mt-1 underline"
